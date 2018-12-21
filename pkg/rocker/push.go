@@ -16,14 +16,20 @@ package rocker
 
 import (
 	"log"
-	"net/http"
-
-	"github.com/spf13/cobra"
+		"github.com/spf13/cobra"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
+	  "github.com/google/go-containerregistry/pkg/v1/tarball"
+  "github.com/google/go-containerregistry/pkg/v1/remote"
+  "net/http"
+    "os"
+  "bytes"
+  "archive/tar"
+    "io"
+    "io/ioutil"
+  "github.com/google/go-containerregistry/pkg/v1/empty"
+  "github.com/google/go-containerregistry/pkg/v1/mutate"
 )
 
 func init() { Root.AddCommand(NewCmdPush()) }
@@ -50,12 +56,64 @@ func push(_ *cobra.Command, args []string) {
 		log.Fatalf("getting creds for %q: %v", t, err)
 	}
 
-	i, err := tarball.ImageFromPath(src, nil)
+	dataLayerBuf, err := makeLayerTar(src)
 	if err != nil {
-		log.Fatalf("reading image %q: %v", src, err)
-	}
+    log.Fatal("", err)
+  }
+
+  // Append the new layer.
+  dataLayerBytes := dataLayerBuf.Bytes()
+  dataLayer, err := tarball.LayerFromOpener(func() (io.ReadCloser, error) {
+    return ioutil.NopCloser(bytes.NewBuffer(dataLayerBytes)), nil
+  })
+  if err != nil {
+    log.Fatal("", err)
+  }
+
+  // Augment the base image with our data layer.
+  i, err := mutate.AppendLayers(empty.Image, dataLayer)
+  if err != nil {
+    log.Fatal("", err)
+  }
 
 	if err := remote.Write(t, i, auth, http.DefaultTransport); err != nil {
 		log.Fatalf("writing image %q: %v", t, err)
 	}
+}
+
+// Makes a layer tarball with dataFile at path /data.
+func makeLayerTar(dataFile string) (*bytes.Buffer, error) {
+  // Write layer with one file /data (stdin as contents)
+  // See tarKoData to build tar
+  // turn into v1.Layer
+  info, err := os.Stat(dataFile)
+  if err != nil {
+    return nil, err
+  }
+
+  dataLayerBuf := bytes.NewBuffer(nil)
+  tw := tar.NewWriter(dataLayerBuf)
+  defer tw.Close()
+
+  // Open the file to copy it into the tarball.
+  file, err := os.Open(dataFile)
+  if err != nil {
+    return nil, err
+  }
+  defer file.Close()
+
+  // Copy the file into the image tarball.
+  if err := tw.WriteHeader(&tar.Header{
+    Name:     "data",
+    Size:     info.Size(),
+    Typeflag: tar.TypeReg,
+    // Use a fixed Mode, so that this isn't sensitive to the directory and umask
+    // under which it was created. Additionally, windows can only set 0222,
+    // 0444, or 0666, none of which are executable.
+    Mode: 0555,
+  }); err != nil {
+    return nil, err
+  }
+  _, err = io.Copy(tw, file)
+  return dataLayerBuf, nil
 }

@@ -14,7 +14,7 @@
  * the License.
  */
 
-package rocker
+package main
 
 import (
 "fmt"

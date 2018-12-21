@@ -83,6 +83,7 @@ func push(_ *cobra.Command, args []string) {
 
 // Makes a layer tarball with dataFile at path /data.
 func makeLayerTar(dataFile string) (*bytes.Buffer, error) {
+
   // Write layer with one file /data (stdin as contents)
   // See tarKoData to build tar
   // turn into v1.Layer

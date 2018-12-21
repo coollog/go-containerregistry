@@ -15,7 +15,6 @@
 package rocker
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/spf13/cobra"
@@ -23,7 +22,12 @@ import (
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
-	"github.com/google/go-containerregistry/pkg/v1/tarball"
+		"github.com/google/go-containerregistry/pkg/v1"
+	"archive/tar"
+	"io"
+		"errors"
+			"os"
+	"fmt"
 )
 
 // Tag applied to images that were pulled by digest. This denotes that the
@@ -56,24 +60,43 @@ func pull(_ *cobra.Command, args []string) {
 		log.Fatalf("reading image %q: %v", ref, err)
 	}
 
-	// WriteToFile wants a tag to write to the tarball, but we might have
-	// been given a digest.
-	// If the original ref was a tag, use that. Otherwise, if it was a
-	// digest, tag the image with :i-was-a-digest instead.
-	tag, ok := ref.(name.Tag)
-	if !ok {
-		d, ok := ref.(name.Digest)
-		if !ok {
-			log.Fatal("ref wasn't a tag or digest")
-		}
-		s := fmt.Sprintf("%s:%s", d.Repository.Name(), iWasADigestTag)
-		tag, err = name.NewTag(s, name.WeakValidation)
-		if err != nil {
-			log.Fatalf("parsing digest as tag (%s): %v", s, err)
-		}
+	if err := writeLayerData(i, dst); err != nil {
+		log.Fatalf("writing layer data: %v", err)
+	}
+}
+
+func writeLayerData(image v1.Image, filename string) error {
+	layers, err := image.Layers()
+	if err != nil {
+		return err
 	}
 
-	if err := tarball.WriteToFile(dst, tag, i); err != nil {
-		log.Fatalf("writing image %q: %v", dst, err)
+	if len(layers) != 1 {
+		return errors.New(fmt.Sprintf("expected 1 layer, but got %d", len(layers)))
 	}
+
+	dataLayer := layers[0]
+	layerReader, err := dataLayer.Uncompressed()
+	if err != nil {
+		return err
+	}
+
+	tarReader := tar.NewReader(layerReader)
+	header, err := tarReader.Next()
+	if err != nil {
+		return err
+	}
+	if header.Name != "data" {
+		return errors.New(fmt.Sprintf("expected /data, but got %s", header.Name))
+	}
+
+	// Open the file to write the data to it.
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	io.Copy(file, tarReader)
+	return nil
 }

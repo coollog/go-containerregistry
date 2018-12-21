@@ -25,11 +25,13 @@ import (
   "net/http"
     "os"
   "bytes"
-  "archive/tar"
-    "io"
+      "io"
     "io/ioutil"
   "github.com/google/go-containerregistry/pkg/v1/empty"
   "github.com/google/go-containerregistry/pkg/v1/mutate"
+  "archive/tar"
+  "fmt"
+  "errors"
 )
 
 func init() { Root.AddCommand(NewCmdPush()) }
@@ -38,13 +40,13 @@ func NewCmdPush() *cobra.Command {
 	return &cobra.Command{
 		Use:   "push",
 		Short: "Push something to a registry",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		Run:   push,
 	}
 }
 
 func push(_ *cobra.Command, args []string) {
-	src, dst := args[0], args[1]
+	dst := args[0]
 	t, err := name.NewTag(dst, name.WeakValidation)
 	if err != nil {
 		log.Fatalf("parsing tag %q: %v", dst, err)
@@ -56,7 +58,7 @@ func push(_ *cobra.Command, args []string) {
 		log.Fatalf("getting creds for %q: %v", t, err)
 	}
 
-	dataLayerBuf, err := makeLayerTar(src)
+	dataLayerBuf, err := makeLayerTar()
 	if err != nil {
     log.Fatal("", err)
   }
@@ -82,39 +84,44 @@ func push(_ *cobra.Command, args []string) {
 }
 
 // Makes a layer tarball with dataFile at path /data.
-func makeLayerTar(dataFile string) (*bytes.Buffer, error) {
+func makeLayerTar() (*bytes.Buffer, error) {
+  // Save stdin as temp file
+  file, err := ioutil.TempFile("", "")
+  if err != nil {
+    return nil, err
+  }
+  defer os.Remove(file.Name())
 
-  // Write layer with one file /data (stdin as contents)
-  // See tarKoData to build tar
-  // turn into v1.Layer
-  info, err := os.Stat(dataFile)
+  size, err := io.Copy(file, os.Stdin)
   if err != nil {
     return nil, err
   }
 
+  // Write layer with one file /data
   dataLayerBuf := bytes.NewBuffer(nil)
   tw := tar.NewWriter(dataLayerBuf)
   defer tw.Close()
 
-  // Open the file to copy it into the tarball.
-  file, err := os.Open(dataFile)
+  // Copy the file into the image tarball.
+  if err := tw.WriteHeader(&tar.Header{
+   Name:     "data",
+   Size:     size,
+   Typeflag: tar.TypeReg,
+   // Use a fixed Mode, so that this isn't sensitive to the directory and umask
+   // under which it was created. Additionally, windows can only set 0222,
+   // 0444, or 0666, none of which are executable.
+   Mode: 0555,
+  }); err != nil {
+   return nil, err
+  }
+
+  file.Seek(0, 0)
+  writtenSize, err := io.Copy(tw, file)
   if err != nil {
     return nil, err
   }
-  defer file.Close()
-
-  // Copy the file into the image tarball.
-  if err := tw.WriteHeader(&tar.Header{
-    Name:     "data",
-    Size:     info.Size(),
-    Typeflag: tar.TypeReg,
-    // Use a fixed Mode, so that this isn't sensitive to the directory and umask
-    // under which it was created. Additionally, windows can only set 0222,
-    // 0444, or 0666, none of which are executable.
-    Mode: 0555,
-  }); err != nil {
-    return nil, err
+  if writtenSize != size {
+    return nil, errors.New(fmt.Sprintf("expected to write %d bytes but wrote %d bytes", size, writtenSize))
   }
-  _, err = io.Copy(tw, file)
   return dataLayerBuf, nil
 }

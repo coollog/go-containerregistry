@@ -97,6 +97,8 @@ func writeLayerData(image v1.Image, filename string) error {
 	}
 	defer file.Close()
 
-	io.Copy(file, tarReader)
+	if _, err := io.Copy(file, tarReader); err != nil {
+		return err
+	}
 	return nil
 }

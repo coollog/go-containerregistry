@@ -30,24 +30,19 @@ import (
 	"fmt"
 )
 
-// Tag applied to images that were pulled by digest. This denotes that the
-// image was (probably) never tagged with this, but lets us avoid applying the
-// ":latest" tag which might be misleading.
-const iWasADigestTag = "i-was-a-digest"
-
 func init() { Root.AddCommand(NewCmdPull()) }
 
 func NewCmdPull() *cobra.Command {
 	return &cobra.Command{
 		Use:   "pull",
 		Short: "Pull something from a registry",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.ExactArgs(1),
 		Run:   pull,
 	}
 }
 
 func pull(_ *cobra.Command, args []string) {
-	src, dst := args[0], args[1]
+	src := args[0]
 
 	ref, err := name.ParseReference(src, name.WeakValidation)
 	if err != nil {
@@ -60,12 +55,12 @@ func pull(_ *cobra.Command, args []string) {
 		log.Fatalf("reading image %q: %v", ref, err)
 	}
 
-	if err := writeLayerData(i, dst); err != nil {
+	if err := writeLayerData(i); err != nil {
 		log.Fatalf("writing layer data: %v", err)
 	}
 }
 
-func writeLayerData(image v1.Image, filename string) error {
+func writeLayerData(image v1.Image) error {
 	layers, err := image.Layers()
 	if err != nil {
 		return err
@@ -90,14 +85,7 @@ func writeLayerData(image v1.Image, filename string) error {
 		return errors.New(fmt.Sprintf("expected /data, but got %s", header.Name))
 	}
 
-	// Open the file to write the data to it.
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE, 0666)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	if _, err := io.Copy(file, tarReader); err != nil {
+	if _, err := io.Copy(os.Stdout, tarReader); err != nil {
 		return err
 	}
 	return nil

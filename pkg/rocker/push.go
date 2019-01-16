@@ -38,7 +38,7 @@ func init() { Root.AddCommand(NewCmdPush()) }
 
 func NewCmdPush() *cobra.Command {
 	return &cobra.Command{
-		Use:   "push",
+		Use:   "push [reference]",
 		Short: "Push something to a registry",
 		Args:  cobra.ExactArgs(1),
 		Run:   push,

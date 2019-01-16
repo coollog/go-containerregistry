@@ -34,7 +34,7 @@ func init() { Root.AddCommand(NewCmdPull()) }
 
 func NewCmdPull() *cobra.Command {
 	return &cobra.Command{
-		Use:   "pull",
+		Use:   "pull [reference]",
 		Short: "Pull something from a registry",
 		Args:  cobra.ExactArgs(1),
 		Run:   pull,

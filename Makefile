@@ -47,12 +47,9 @@ $(BUILD_DIR)/$(PROJECT)-%-$(GOARCH): $(GO_FILES) $(BUILD_DIR)
 
 cross: $(foreach platform, $(SUPPORTED_PLATFORMS), $(BUILD_DIR)/$(PROJECT)-$(platform))
 
-release: cross test
-	gsutil cp out/rocker-* gs://rocker-downloads
+release: cross
+	gsutil cp out/rocker-* gs://rocker-download
 # << RELEASE
 
 clean:
 	rm -rf $(BUILD_DIR)
-
-test:
-	go test -v `go list ./... | grep -v vendor`
